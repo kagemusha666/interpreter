@@ -1,4 +1,4 @@
 interpreter
 ===========
 
-Simple lisp-like interpreter written on C
+Simple lisp-like interpreter written in C
