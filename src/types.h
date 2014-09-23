@@ -5,38 +5,62 @@
  */
 
 
-#define QUOTE_MAX_LENGTH 256
+#define STRING_MAX_LENGTH 256
 
 
-enum Types
+typedef enum type
 {
-  OBJECT,
-  NUMERIC,
-  QUOTE,
-  PAIR
-};
+    NUMERIC,
+    STRING,
+    PAIR,
+    VARIABLE
+} Type;
 
-struct Object
+typedef struct object
 {
-    enum Types type;
-};
+    Type type;
+    struct object *next; /* next allocated object */
+    char marked;
+    int (*from_string)(struct object*, const char*);
+    const char *(*to_string)(struct object*);
+    void (*finalize)(struct bject*);
+} Object;
 
-struct Numeric
+typedef struct numeric
 {
-    struct Object object;
-    int val;
-};
+    Object object;
+    int value;
+} Numeric;
 
-struct Quote
+typedef struct string
 {
-    struct Object object;
-    size_t len;
-    char *buf;
-};
+    Object object;
+    char *text;
+} String;
 
-struct Pair
+typedef struct pair
 {
-    struct Object object;
-    struct Object *first;
-    struct Object *rest;
-};
+    Object object;
+    Object *first;
+    Object *rest;
+} Pair;
+
+typedef struct variable
+{
+    Object object;
+    char *text_representation;
+} Variable;
+
+Type object_get_type(Object *obj);
+
+void object_mark(Object *obj);
+
+int object_from_string(Object *obj, const char *str);
+
+const char *object_to_string(Object *obj);
+
+Object *object_create(Object *prev, Type type);
+
+Object *object_create_from_string(Object *prev, const char *str);
+
+void object_finalize(Object *obj);

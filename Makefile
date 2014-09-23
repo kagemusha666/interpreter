@@ -3,8 +3,8 @@
 
 CC = gcc
 CFLAGS = -I.src/
-DEPS = src/core.h src/types.h
-OBJ = src/main.o src/core.o
+DEPS = src/vm.h src/types.h src/debug.h src/errors.h
+OBJ = src/main.o src/vm.o src/types.o
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)
