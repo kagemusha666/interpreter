@@ -5,9 +5,11 @@
  */
 
 
+#include "types.h"
 #include "debug.h"
 #include "error.h"
 
+#include <ctype.h>
 #include <string.h>
 #include <assert.h>
 
@@ -21,8 +23,13 @@ int numeric_from_string(Object *obj, const char *str)
 const char *numeric_to_string(Object *obj)
 {
     static char str[STRING_MAX_LENGTH];
-    sscanf(str, "%d", ((Numeric*)obj)->value);
+    sprintf(str, "%d", ((Numeric*)obj)->value);
     return str;
+}
+
+void numeric_finalize(Object *obj)
+{
+    /* Empty */
 }
 
 Numeric *numeric_initialize()
@@ -34,34 +41,37 @@ Numeric *numeric_initialize()
     obj->value = 0;
 }
 
-void numeric_finalize(Object *obj)
-{
-    /* Empty */
-}
-
 int string_from_string(Object *obj, const char *str)
 {
     size_t len = strlen(str);
-    char *text = ((String*)obj)->text;
+    char **text = &((String*)obj)->text;
 
     if (len < 2
         || len > STRING_MAX_LENGTH
-        || str[0] != "\""
-        || str[len -1] != "\"")
+        || str[0] != '"'
+        || str[len - 2] != '"')
         return ERROR;
 
-    if (text != NULL)
-        free(text);
-    text = (char*)malloc(--len--);
-    strncpy(text, str, len);
-    text[len] = '\0';
+    if (*text != NULL)
+        free(*text);
+
+    len -= 2;
+    *text = (char*)malloc(len);
+    memcpy(*text, str + 1, len);
+    (*text)[len - 1] = '\0';
     return OK;
 }
 
 const char *string_to_string(Object *obj)
 {
     static char str[STRING_MAX_LENGTH];
-    sscanf(str, "\"%s\"", ((String*)obj)->text);
+    sprintf(str, "\"%s\"", ((String*)obj)->text);
+    return str;
+}
+
+void string_finalize(Object *obj)
+{
+    free((void*)((String*)obj)->text);
 }
 
 String *string_initialize()
@@ -74,27 +84,28 @@ String *string_initialize()
     return obj;
 }
 
-void string_finalize(Object *obj)
-{
-    free((void*)((String*)obj)->text);
-}
-
 int variable_from_string(Object *obj, const char *str)
 {
     size_t len = strlen(str);
-    char *text = ((String*)obj)->text_representation;
+    char **text = &((Variable*)obj)->text_representation;
 
-    if (text != NULL)
-        free(text);
-    text = (char*)malloc(len + 1);
-    strcpy(text, str);
+    if (*text != NULL)
+        free(*text);
+    *text = (char*)malloc(len + 1);
+    memcpy(*text, str, len - 1);
     return OK;
 }
 
 const char *variable_to_string(Object *obj)
 {
     static char str[STRING_MAX_LENGTH];
-    sscanf(str, "%s", ((Variable*)obj)->text_representation);
+    sprintf(str, "%s", ((Variable*)obj)->text_representation);
+    return str;
+}
+
+void variable_finalize(Object *obj)
+{
+    free((void*)((Variable*)obj)->text_representation);
 }
 
 Variable *variable_initialize()
@@ -107,11 +118,6 @@ Variable *variable_initialize()
     return obj;
 }
 
-void variable_finalize(Object *obj)
-{
-    free((void*)((Variable*)obj)->text_representation);
-}
-
 int pair_from_string(Object *obj, const char *str)
 {
     FATAL("Not implemented yet");
@@ -120,6 +126,12 @@ int pair_from_string(Object *obj, const char *str)
 const char *pair_to_string(Object *obj)
 {
     FATAL("Not implemented yet");
+}
+
+void pair_finalize(Object *obj)
+{
+    object_finalize(((Pair*)obj)->first);
+    object_finalize(((Pair*)obj)->rest);
 }
 
 Pair *pair_initialize()
@@ -131,12 +143,6 @@ Pair *pair_initialize()
     obj->first = NULL;
     obj->rest = NULL;
     return obj;
-}
-
-void pair_finalize(Object *obj)
-{
-    object_finalize((Pair*)obj)->first);
-    object_finalize((Pair*)obj)->rest);
 }
 
 Type object_get_type(Object *obj)
@@ -195,10 +201,9 @@ Object *object_create(Object *prev, Type type)
         FATAL("Invalid object type");
     }
 
-    obj->object.type = type;
+    obj->type = type;
     obj->next = (Object*)prev;
     obj->marked = 0;
-
     return obj;
 }
 
@@ -212,12 +217,12 @@ int is_number(const char *str)
 
 Type get_type_of_str(const char *str)
 {
-    if (str[0] == "\"" && str[strlen(str)] == "\"")
+    if (str[0] == '"' && str[strlen(str) - 2] == '"')
         return STRING;
+    else if (str[0] == '(' && str[strlen(str) - 2] == ')')
+        return PAIR;
     else if (is_number(str))
         return NUMERIC;
-    else if (str[0] == "(" && str[strlen(str)] == ")")
-        return PAIR;
     return VARIABLE;
 }
 
@@ -229,7 +234,7 @@ Object *object_create_from_string(Object *prev, const char *str)
     }
     else {
         ERROR("Error parsing: %s", str);
-        object_finazlize(obj);
+        object_finalize(obj);
         return NULL;
     }
 }

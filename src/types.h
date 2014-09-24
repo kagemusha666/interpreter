@@ -7,6 +7,8 @@
 
 #define STRING_MAX_LENGTH 256
 
+#ifndef TYPES_H
+#define TYPES_H
 
 typedef enum type
 {
@@ -23,7 +25,7 @@ typedef struct object
     char marked;
     int (*from_string)(struct object*, const char*);
     const char *(*to_string)(struct object*);
-    void (*finalize)(struct bject*);
+    void (*finalize)(struct object*);
 } Object;
 
 typedef struct numeric
@@ -64,3 +66,5 @@ Object *object_create(Object *prev, Type type);
 Object *object_create_from_string(Object *prev, const char *str);
 
 void object_finalize(Object *obj);
+
+#endif

@@ -5,6 +5,9 @@
  */
 
 
+#ifndef DEBUG_H
+#define DEBUG_H
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -37,3 +40,5 @@
         fprintf(stderr, "\n");                                          \
         abort();                                                        \
     } while (0)
+
+#endif

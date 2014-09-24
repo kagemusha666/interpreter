@@ -4,12 +4,15 @@
  *    main.c
  */
 
-#include "vm.h"
 
+#include "vm.h"
+#include "error.h"
+
+#define _GNU_SOURCE
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <unistd.h>
 
 #define INPUT_BUFFER_MAX_SIZE 256
 
@@ -40,7 +43,7 @@ int is_expression_complete(const char *line, size_t len)
             counter--;
     }
 
-    return (len > 2 && counter == 0);
+    return counter == 0;
 }
 
 int main(int argc, char *argv[])
@@ -51,7 +54,7 @@ int main(int argc, char *argv[])
     ssize_t read;
     int code;
 
-    vm = VM_create();
+    vm = vm_create();
     buffer = (char*)malloc(INPUT_BUFFER_MAX_SIZE);
 
     while (!feof(stdin)) {
@@ -65,13 +68,10 @@ int main(int argc, char *argv[])
             read += read_buffer(buffer + read, size - read);
 
             if (is_expression_complete(buffer, read)) {
-                code = vm_eval_exp(vm, buffer);
+                code = vm_eval_str(vm, buffer);
 
-                if (code == OK) {
-                    // printf("\nRETURN: %s\n", output);
-                }
-                else {
-                    printf("\nERROR, code = %d\n", code);
+                if (code != OK) {
+                    printf("\nERROR, code = %s\n", error_to_string(code));
                 }
 
                 break;
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
     }
 
     free(buffer);
-    VM_finalize(vm);
+    vm_finalize(vm);
 
     return EXIT_SUCCESS;
 }

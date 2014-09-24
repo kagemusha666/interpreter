@@ -5,30 +5,31 @@
  */
 
 
-#include "type.h"
+#include "types.h"
 
+#ifndef VM_H
+#define VM_H
 
 #define STACK_MAX_SIZE 256
 #define OBJECT_MAX_NUMBER 64
 
 
 typedef struct virtual_machine {
-    Object *stack[STACK_MAX_SIZE]
+    Object *stack[STACK_MAX_SIZE];
     unsigned stack_size;
-    unsinged object_number;
+    unsigned object_number;
     unsigned object_max_number;
     Object *last_object;
     unsigned last_stack_size;
+    Object *return_value;
 } VM;
 
-VM *VM_create();
+VM *vm_create();
 
-void VM_finalize(VM *vm);
+void vm_finalize(VM *vm);
 
-int VM_eval_exp(VM *vm, const char *exp);
+int vm_eval_str(VM *vm, const char *str);
 
-void VM_collect_garbage(VM *vm);
+void vm_collect_garbage(VM *vm);
 
-int VM_push(VM *vm, Object *obj);
-
-Object *VM_pop(VM *vm);
+#endif
