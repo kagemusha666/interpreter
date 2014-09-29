@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
                 code = vm_eval_str(vm, buffer);
 
                 if (code != OK) {
-                    printf("\nERROR, code = %s\n", error_to_string(code));
+                    printf("ERROR, code = %s\n", error_to_string(code));
                 }
 
                 break;

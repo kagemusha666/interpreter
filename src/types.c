@@ -15,7 +15,9 @@
 
 int numeric_from_string(Object *obj, const char *str)
 {
-    Numeric *p = (Numeric*)obj;
+    if (strchr(str, ' ') != NULL)
+      return SYNTAX_ERROR;
+
     ((Numeric*)obj)->value = atoi(str);
     return OK;
 }
@@ -88,6 +90,9 @@ int variable_from_string(Object *obj, const char *str)
 {
     size_t len = strlen(str);
     char **text = &((Variable*)obj)->text_representation;
+
+    if (strchr(str, ' ') != NULL)
+      return SYNTAX_ERROR;
 
     if (*text != NULL)
         free(*text);
