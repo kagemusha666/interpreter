@@ -1,18 +1,40 @@
 # Makefile of interpreter project
 
+PROGRAM=lisp
 
-CC = gcc
-CFLAGS = -I.src/ -std=c99
-DEPS = src/vm.h src/vm_priv.h src/types.h src/error.h src/debug.h
-OBJ = src/main.o src/vm.o src/vm_priv.o src/types.o src/error.o
+ARCH=x86_64
+CROSS_COMPILE=x86_64-linux-gnu
 
-%.o: %.c $(DEPS)
-	$(CC) -c -o $@ $< $(CFLAGS)
+CC=$(CROSS_COMPILE)-gcc
+STRIP=$(CROSS_COMPILE)-strip
+INSTALL=install
 
-scheme: $(OBJ)
-	mkdir -p build
-	$(CC) -o build/$@ $^ $(CFLAGS)
+OUTPUTDIR=$(abspath .)/build/$(ARCH)
+DESTDIR=/
+prefix=/usr/local
+
+CFLAGS=-std=c99
+
+export
+
+.PHONY: outputdir sources tests check install clean
+
+all: sources
+
+install:
+	@$(INSTALL) --strip --strip-program=$(STRIP) $(OUTPUTDIR)/$(PROGRAM) $(DESTDIR)/$(prefix)/$(PROGRAM)
+
+check: tests
+	@$(OUTPUTDIR)/test
+
+tests: sources
+	@$(MAKE) -C tests
+
+sources: outputdir
+	@$(MAKE) -C src
+
+outputdir:
+	@mkdir -p $(OUTPUTDIR)
 
 clean:
 	rm -rf build
-	rm -f src/*.o
