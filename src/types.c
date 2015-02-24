@@ -6,12 +6,14 @@
 
 
 #include "types.h"
+#include "utils.h"
 #include "debug.h"
 #include "error.h"
 
 #include <ctype.h>
 #include <string.h>
 #include <assert.h>
+
 
 int numeric_from_string(Object *obj, const char *str)
 {
@@ -123,15 +125,9 @@ Variable *variable_initialize()
     return obj;
 }
 
-int pair_from_string(Object *obj, const char *str)
-{
-    FATAL("Not implemented yet");
-}
+int pair_from_string(Object *obj, const char *str);
 
-const char *pair_to_string(Object *obj)
-{
-    FATAL("Not implemented yet");
-}
+const char *pair_to_string(Object *obj);
 
 void pair_finalize(Object *obj)
 {
@@ -185,7 +181,7 @@ const char *object_to_string(Object *obj)
     return obj->to_string(obj);
 }
 
-Object *object_create(Object *prev, Type type)
+Object *object_create(Type type)
 {
     Object *obj = NULL;
 
@@ -207,33 +203,23 @@ Object *object_create(Object *prev, Type type)
     }
 
     obj->type = type;
-    obj->next = (Object*)prev;
-    obj->marked = 0;
     return obj;
-}
-
-int is_number(const char *str)
-{
-    for (int i = 0; i != strlen(str); i++)
-        if (isalpha(str[i]))
-            return 0;
-    return 1;
 }
 
 Type get_type_of_str(const char *str)
 {
-    if (str[0] == '"' && str[strlen(str) - 2] == '"')
+    if (is_string(str))
         return STRING;
-    else if (str[0] == '(' && str[strlen(str) - 2] == ')')
+    else if (is_s_expression(str))
         return PAIR;
     else if (is_number(str))
         return NUMERIC;
     return VARIABLE;
 }
 
-Object *object_create_from_string(Object *prev, const char *str)
+Object *object_create_from_string(const char *str)
 {
-    Object *obj = object_create(prev, get_type_of_str(str));
+    Object *obj = object_create(get_type_of_str(str));
     if (object_from_string(obj, str) == OK) {
         return obj;
     }
@@ -250,4 +236,43 @@ void object_finalize(Object *obj)
         obj->finalize(obj);
         free((void*)obj);
     }
+}
+
+
+int pair_from_string(Object *obj, const char *str)
+{
+    /*
+    Pair *pair = (Pair*)obj;
+
+    if (str_list_get_first_item(str) != NULL) {
+        pair->first = object_create_from_string(str_list_get_first_item(str));
+        if (pair->first == NULL)
+            return SYNTAX_ERROR;
+
+        if (str_list_get_rest_items(str) != NULL) {
+            pair->rest = object_create(PAIR);
+            return pair_from_string(pair->rest, str_list_get_rest_items(str));
+        }
+    }
+    return OK;
+    */
+}
+
+const char *pair_to_string(Object *obj)
+{
+    /*
+    Pair *pair = (Pair*)obj;
+
+    if (pair->first != NULL)
+        str_list_set_first_item(object_to_string(pair->first), pair->first == PAIR);
+    else
+        str_list_set_first_item(NULL, 0);
+
+    if (pair->rest != NULL)
+        str_list_set_rest_items(object_to_string(pair->rest));
+    else
+        str_list_set_rest_items(NULL);
+
+    return str_list_get_complete_list();
+    */
 }

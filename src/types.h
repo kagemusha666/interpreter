@@ -21,8 +21,10 @@ typedef enum type
 typedef struct object
 {
     Type type;
-    struct object *next; /* next allocated object */
-    char marked;
+    struct vm_attributes {
+        struct object *next; /* next allocated object */
+        char marked;
+    } vm;
     int (*from_string)(struct object*, const char*);
     const char *(*to_string)(struct object*);
     void (*finalize)(struct object*);
@@ -61,9 +63,9 @@ int object_from_string(Object *obj, const char *str);
 
 const char *object_to_string(Object *obj);
 
-Object *object_create(Object *prev, Type type);
+Object *object_create(Type type);
 
-Object *object_create_from_string(Object *prev, const char *str);
+Object *object_create_from_string(const char *str);
 
 void object_finalize(Object *obj);
 
