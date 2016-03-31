@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
 #define DEBUG(...) \
     do {                          \
         fprintf(stderr, "%s:%d:%s: ", __FILE__, __LINE__, __func__);    \
@@ -41,4 +40,9 @@
         abort();                                                        \
     } while (0)
 
-#endif
+void dump_backtrace(void);
+void assert_with_backtrace(const char *msg, const char *file, int line);
+
+#define assert(EX) (void)((EX) || (assert_with_backtrace (#EX, __FILE__, __LINE__),0))
+
+#endif // DEBUG_H

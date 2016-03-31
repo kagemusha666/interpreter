@@ -5,10 +5,11 @@
  */
 
 
-#include "vm.h"
-#include "error.h"
+#include "parser.h"
+#include "core.h"
+#include "env.h"
+#include "debug.h"
 
-#define _GNU_SOURCE
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,8 +17,16 @@
 
 #define INPUT_BUFFER_MAX_SIZE 256
 
+static Object *cons(Object *obj)
+{
+    List *list = (List*)obj;
+    Pair *pair = (Pair*)object_create(OBJECT_TYPE_PAIR);
+    pair->first = list->item;
+    pair->rest = list->next->item;
+    return (Object*)pair;
+}
 
-size_t read_buffer(char *buf, size_t len)
+static size_t read_buffer(char *buf, size_t len)
 {
     char *line = NULL;
     size_t size = 0;
@@ -31,7 +40,7 @@ size_t read_buffer(char *buf, size_t len)
     return read < len ? read : len;
 }
 
-int is_expression_complete(const char *line, size_t len)
+static int is_expression_complete(const char *line, size_t len)
 {
     long counter = 0;
     size_t i;
@@ -48,14 +57,14 @@ int is_expression_complete(const char *line, size_t len)
 
 int main(int argc, char *argv[])
 {
-    VM *vm;
-    char *buffer;
     size_t size;
     ssize_t read;
-    int code;
+    Object *object;
 
-    vm = vm_create();
-    buffer = (char*)malloc(INPUT_BUFFER_MAX_SIZE);
+    char *buffer = (char*)malloc(INPUT_BUFFER_MAX_SIZE);
+    Env *env = env_extend(NULL);
+
+    env_add_native_function(env, "cons", 2, 0, cons);
 
     while (!feof(stdin)) {
         memset(buffer, 0, INPUT_BUFFER_MAX_SIZE);
@@ -68,19 +77,19 @@ int main(int argc, char *argv[])
             read += read_buffer(buffer + read, size - read);
 
             if (is_expression_complete(buffer, read)) {
-                code = vm_eval_str(vm, buffer);
-
-                if (code != OK) {
-                    printf("ERROR, code = %s\n", error_to_string(code));
+                object = parser_create_object_from_string(buffer);
+                if (object != NULL) {
+                    object = core_eval(object, env);
+                    if (object != NULL) {
+                        object_dump(object);
+                    }
                 }
-
                 break;
             }
         }
     }
 
     free(buffer);
-    vm_finalize(vm);
 
     return EXIT_SUCCESS;
 }

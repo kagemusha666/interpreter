@@ -4,37 +4,40 @@ PROGRAM=lisp
 
 ARCH=x86_64
 CROSS_COMPILE=x86_64-linux-gnu
+CFLAGS=-Wall -std=c99 -g -rdynamic
 
 CC=$(CROSS_COMPILE)-gcc
 STRIP=$(CROSS_COMPILE)-strip
 INSTALL=install
 
 OUTPUTDIR=$(abspath .)/build/$(ARCH)
+SOURCESDIR=$(abspath .)/src
 DESTDIR=/
 prefix=/usr/local
 
-CFLAGS=-std=c99
+SOURCES:=$(wildcard $(SOURCESDIR)/*.c)
+HEADERS:=$(wildcard $(SOURCESDIR)/*.h)
+OBJECTS:=$(addprefix $(OUTPUTDIR)/,$(notdir $(SOURCES:.c=.o)))
 
-export
+#$(error SOURCES='$(SOURCES)' HEADERS='$(HEADERS)' OBJECTS='$(OBJECTS)')
 
-.PHONY: outputdir sources tests check install clean
+.PHONY: all install clean
 
-all: sources
+all: $(OUTPUTDIR)/$(PROGRAM)
 
-install:
-	@$(INSTALL) --strip --strip-program=$(STRIP) $(OUTPUTDIR)/$(PROGRAM) $(DESTDIR)/$(prefix)/$(PROGRAM)
+install: $(OUTPUTDIR)/$(PROGRAM)
+	$(INSTALL) --strip --strip-program=$(STRIP) $@ $(DESTDIR)/$(prefix)/$(PROGRAM)
 
-check: tests
-	@$(OUTPUTDIR)/test
+$(OUTPUTDIR)/$(PROGRAM): $(OBJECTS)
+	$(CC) -o $@ $+ $(CFLAGS)
 
-tests: sources
-	@$(MAKE) -C tests
+$(OUTPUTDIR)/%o:  $(SOURCESDIR)/%c
+	$(CC) -c -o $@ $< $(CFLAGS)
 
-sources: outputdir
-	@$(MAKE) -C src
+$(OBJECTS): $(HEADERS) | $(OUTPUTDIR)
 
-outputdir:
-	@mkdir -p $(OUTPUTDIR)
+$(OUTPUTDIR):
+	@mkdir -p $@
 
 clean:
 	rm -rf build
