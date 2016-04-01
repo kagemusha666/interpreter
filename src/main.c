@@ -26,6 +26,60 @@ static Object *cons(Object *obj)
     return (Object*)pair;
 }
 
+static Object *car(Object *obj)
+{
+    Object *res;
+    List *list = (List*)obj;
+
+    if (list->next != NULL) {
+        ERROR("Wrong number of arguments: expected one argument");
+    }
+    else if (object_get_type(list->item) != OBJECT_TYPE_PAIR) {
+        ERROR("Wrong type of argument: expected pair");
+        return NULL;
+    }
+    else {
+        res = ((Pair*)list->item)->first;
+    }
+    return res;
+}
+
+static Object *cdr(Object *obj)
+{
+    Object *res;
+    List *list = (List*)obj;
+
+    if (list->next != NULL) {
+        ERROR("Wrong number of arguments: expected one argument");
+    }
+    else if (object_get_type(list->item) != OBJECT_TYPE_PAIR) {
+        ERROR("Wrong type of argument: expected pair");
+        return NULL;
+    }
+    else {
+        res = ((Pair*)list->item)->rest;
+    }
+    return res;
+
+}
+
+static Object *plus(Object *obj)
+{
+    Integer *ans;
+    List *list = (List*)obj;
+    ans = (Integer*)object_create(OBJECT_TYPE_INTEGER);
+    while (list != NULL) {
+        if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
+            ERROR("Wrong type of argument %s: expected numeric",
+                  object_to_string(list->item));            
+            return NULL;
+        }
+        ans->value += ((Integer*)list->item)->value;
+        list = list->next;
+    }
+    return (Object*)ans;
+}
+
 static size_t read_buffer(char *buf, size_t len)
 {
     char *line = NULL;
@@ -65,6 +119,9 @@ int main(int argc, char *argv[])
     Env *env = env_extend(NULL);
 
     env_add_native_function(env, "cons", 2, 0, cons);
+    env_add_native_function(env, "car", 1, 0, car);
+    env_add_native_function(env, "cdr", 1, 0, cdr);
+    env_add_native_function(env, "+", 1, 1, plus);
 
     while (!feof(stdin)) {
         memset(buffer, 0, INPUT_BUFFER_MAX_SIZE);

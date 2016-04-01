@@ -34,6 +34,20 @@ static void throw_exception(Error error, const char *format, ...)
     longjmp(_coreEnv, (int)error);
 }
 
+static unsigned get_list_size(Object *obj)
+{
+    unsigned res = 0;
+    List *list = (List*)obj;
+    assert(object_get_type(obj) == OBJECT_TYPE_LIST);
+
+    while (list != NULL) {
+        if (list->item != NULL)
+            res++;
+        list = list->next;
+    }
+    return res;
+}
+
 static Object *lookup_variable(Object *exp, Env *env)
 {
     Object *obj = env_lookup_variable(env, (Unbound*)exp);
@@ -45,17 +59,24 @@ static Object *lookup_variable(Object *exp, Env *env)
 
 static Object *list_of_values(Object *args, Env *env)
 {
-    Object *obj;
-    Pair *list = (Pair*)args;
-    do {
-        obj = eval(list->first, env);
-        if (obj == NULL) {
-            throw_exception(ERROR_UNKNOWN, "Error in %s", object_to_string(list->first));
-        }
-        list->first = obj;
-        list = (Pair*)list->rest;
-    } while (list->rest != NULL);
-    return args;
+    List *res;
+
+    if (args != NULL) {
+        assert(object_get_type(args) == OBJECT_TYPE_LIST);
+
+        List *list = (List*)args;
+        List **ptr = &res;
+        do {
+            *ptr = (List*)object_create(OBJECT_TYPE_LIST);
+            (*ptr)->item = eval(list->item, env);
+            list = list->next;
+            ptr = &(*ptr)->next;
+        } while (list != NULL);
+    }
+    else {
+        res = (List*)object_create(OBJECT_TYPE_LIST);
+    }
+    return (Object*)res;
 }
 
 static Object *eval_definition(Object *args, Env *env)
@@ -74,13 +95,11 @@ static Object *eval_sequence(Object *seq, Env *env)
 {
     Object *obj;
     Pair *list = (Pair*)seq;
+
     do {
         obj = eval(list->first, env);
-        if (obj == NULL) {
-            throw_exception(ERROR_UNKNOWN, "Error in %s", object_to_string(list->first));
-        }
         list = (Pair*)list->rest;
-    } while (list->rest != NULL);
+    } while (list != NULL);
     return obj;
 }
 
@@ -89,7 +108,7 @@ static Object *make_procedure(Object *exp, Env *env)
     Proc *proc = NULL;
     List *list = (List*)exp;
     Object *args = list->item;
-    Object *body = list->next->item;
+    Object *body = (Object*)list->next;
 
     if (object_get_type(args) != OBJECT_TYPE_PAIR
         || object_get_type(body) != OBJECT_TYPE_PAIR) {
@@ -126,19 +145,27 @@ static Env *extend_environment(Pair *args, Pair *vals, Env *env)
 
 static Object *apply(Object *operator, Object *args, Env *env)
 {
+    Object *res = NULL;
+
     if (operator->type == OBJECT_TYPE_PROCEDURE) {
         Proc *proc = (Proc*)operator;
-        return eval_sequence((Object*)proc->body,
-                             extend_environment(proc->args, (Pair*)args, env));
+        res = eval_sequence((Object*)proc->body,
+                            extend_environment(proc->args, (Pair*)args, env));
     }
     else if (operator->type == OBJECT_TYPE_NATIVE) {
         Native *proc = (Native*)operator;
-        return proc->native_function(args);
+        unsigned num_of_args = get_list_size(args);
+        if ((proc->rst == 0 && num_of_args > proc->req) || num_of_args < proc->req) {
+            throw_exception(ERROR_INVALID_ARGS,
+                            "Invalid args number %u", num_of_args);
+        }
+        res = proc->native_function(args);
     }
-    else {
-        throw_exception(ERROR_INVALID_ARGS, "Invalid operator %s", object_to_string(operator));
+    if (res == NULL) {
+        throw_exception(ERROR_INVALID_ARGS,
+                        "Function call %s failed", object_to_string(operator));
     }
-    return NULL;
+    return res;
 }
 
 static Object *eval(Object *exp, Env *env)
