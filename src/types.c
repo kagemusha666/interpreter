@@ -49,6 +49,28 @@ static Integer *integer_initialize()
     return obj;
 }
 
+static const char *boolean_to_string(Object *obj)
+{
+    sprintf(string, "%s", ((Boolean*)obj)->value ? "#true" : "#false");
+    return string;
+}
+
+static void boolean_dump(Object *obj)
+{
+    printf("%s", ((Boolean*)obj)->value ? "#true" : "#false");
+}
+
+static Integer *boolean_initialize()
+{
+    Integer *obj = malloc(sizeof(Integer));
+    obj->object.to_string = &boolean_to_string;
+    obj->object.dump = &boolean_dump;
+    obj->object.mark = &mark;
+    obj->object.finalize = &finalize;
+    obj->value = false;
+    return obj;
+}
+
 static const char *string_to_string(Object *obj)
 {
     const char *str = ((String*)obj)->cstr;
@@ -362,6 +384,9 @@ Object *object_create(Type type)
     switch (type) {
     case OBJECT_TYPE_INTEGER:
         obj = (Object*)integer_initialize();
+        break;
+    case OBJECT_TYPE_BOOLEAN:
+        obj = (Object*)boolean_initialize();
         break;
     case OBJECT_TYPE_STRING:
         obj = (Object*)string_initialize();

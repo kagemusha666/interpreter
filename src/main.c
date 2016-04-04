@@ -68,6 +68,7 @@ static Object *plus(Object *obj)
     Integer *ans;
     List *list = (List*)obj;
     ans = (Integer*)object_create(OBJECT_TYPE_INTEGER);
+
     while (list != NULL) {
         if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
             ERROR("Wrong type of argument %s: expected numeric",
@@ -78,6 +79,41 @@ static Object *plus(Object *obj)
         list = list->next;
     }
     return (Object*)ans;
+}
+
+static Object *equal(Object *obj)
+{
+    Boolean *ans = (Boolean*)object_create(OBJECT_TYPE_BOOLEAN);
+    List *list = (List*)obj;
+    int prevVar;
+    bool isPrevVarInit = false;
+
+    ans->value = true;
+
+    while (list != NULL) {
+        if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
+            ERROR("Wrong type of argument %s: expected numeric",
+                  object_to_string(list->item));            
+            return NULL;
+        }
+        if (!isPrevVarInit) {
+            prevVar = ((Integer*)list->item)->value;
+            DEBUG("Right operand is %d", prevVar);
+            isPrevVarInit = true;
+        }
+        else if (prevVar != ((Integer*)list->item)->value) {
+            ans->value = false;
+            break;
+        }
+        list = list->next;
+    }
+    return (Object*)ans;
+}
+
+static Object *display(Object *obj)
+{
+    object_dump(obj);
+    return NULL;
 }
 
 static size_t read_buffer(char *buf, size_t len)
@@ -122,6 +158,8 @@ int main(int argc, char *argv[])
     env_add_native_function(env, "car", 1, 0, car);
     env_add_native_function(env, "cdr", 1, 0, cdr);
     env_add_native_function(env, "+", 1, 1, plus);
+    env_add_native_function(env, "=", 1, 1, equal);
+    env_add_native_function(env, "display", 1, 1, display);
 
     while (!feof(stdin)) {
         memset(buffer, 0, INPUT_BUFFER_MAX_SIZE);

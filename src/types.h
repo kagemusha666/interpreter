@@ -8,12 +8,15 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <stdbool.h>
+
 #define STRING_MAX_LENGTH 256
 
 typedef enum type
 {
     OBJECT_TYPE_NONE,
     OBJECT_TYPE_INTEGER,
+    OBJECT_TYPE_BOOLEAN,
     OBJECT_TYPE_STRING,
     OBJECT_TYPE_PAIR,
     OBJECT_TYPE_LIST = OBJECT_TYPE_PAIR,
@@ -51,6 +54,12 @@ typedef struct integer
     Object object;
     int value;
 } Integer;
+
+typedef struct boolean
+{
+    Object object;
+    bool value;
+} Boolean;
 
 typedef struct string
 {
