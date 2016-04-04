@@ -8,6 +8,7 @@
 #include "parser.h"
 #include "core.h"
 #include "env.h"
+#include "error.h"
 #include "debug.h"
 
 #include <string.h>
@@ -16,6 +17,8 @@
 #include <unistd.h>
 
 #define INPUT_BUFFER_MAX_SIZE 256
+
+#define throw(format,args...) throw_exception(ERROR_TYPE_CORE, format, ##args);
 
 static Object *cons(Object *obj)
 {
@@ -32,11 +35,10 @@ static Object *car(Object *obj)
     List *list = (List*)obj;
 
     if (list->next != NULL) {
-        ERROR("Wrong number of arguments: expected one argument");
+        throw("Wrong number of arguments: expected one argument");
     }
     else if (object_get_type(list->item) != OBJECT_TYPE_PAIR) {
-        ERROR("Wrong type of argument: expected pair");
-        return NULL;
+        throw("Wrong type of argument: expected pair");
     }
     else {
         res = ((Pair*)list->item)->first;
@@ -50,11 +52,10 @@ static Object *cdr(Object *obj)
     List *list = (List*)obj;
 
     if (list->next != NULL) {
-        ERROR("Wrong number of arguments: expected one argument");
+        throw("Wrong number of arguments: expected one argument");
     }
     else if (object_get_type(list->item) != OBJECT_TYPE_PAIR) {
-        ERROR("Wrong type of argument: expected pair");
-        return NULL;
+        throw("Wrong type of argument: expected pair");
     }
     else {
         res = ((Pair*)list->item)->rest;
@@ -71,9 +72,8 @@ static Object *plus(Object *obj)
 
     while (list != NULL) {
         if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
-            ERROR("Wrong type of argument %s: expected numeric",
+            throw("Wrong type of argument %s: expected numeric",
                   object_to_string(list->item));            
-            return NULL;
         }
         ans->value += ((Integer*)list->item)->value;
         list = list->next;
@@ -92,13 +92,12 @@ static Object *equal(Object *obj)
 
     while (list != NULL) {
         if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
-            ERROR("Wrong type of argument %s: expected numeric",
+            throw("Wrong type of argument %s: expected numeric",
                   object_to_string(list->item));            
             return NULL;
         }
         if (!isPrevVarInit) {
             prevVar = ((Integer*)list->item)->value;
-            DEBUG("Right operand is %d", prevVar);
             isPrevVarInit = true;
         }
         else if (prevVar != ((Integer*)list->item)->value) {
@@ -112,7 +111,12 @@ static Object *equal(Object *obj)
 
 static Object *display(Object *obj)
 {
-    object_dump(obj);
+    List *list = (List*)obj;
+    while (list != NULL) {
+        object_dump(list->item);
+        list = list->next;
+    }
+    printf("\n");
     return NULL;
 }
 
@@ -149,7 +153,7 @@ int main(int argc, char *argv[])
 {
     size_t size;
     ssize_t read;
-    Object *object;
+    Error error;
 
     char *buffer = (char*)malloc(INPUT_BUFFER_MAX_SIZE);
     Env *env = env_extend(NULL);
@@ -172,12 +176,14 @@ int main(int argc, char *argv[])
             read += read_buffer(buffer + read, size - read);
 
             if (is_expression_complete(buffer, read)) {
-                object = parser_create_object_from_string(buffer);
-                if (object != NULL) {
-                    object = core_eval(object, env);
-                    if (object != NULL) {
-                        object_dump(object);
-                    }
+
+                error = try_and_catch_error();
+                if (error != ERROR_TYPE_NONE) {
+                    printf("Catched error in component %s.\n", error_to_string(error));
+                }
+                else {
+                    object_dump(core_eval(parser_create_object_from_string(buffer), env));
+//                  object_dump(parser_create_object_from_string(buffer));
                 }
                 break;
             }

@@ -1,14 +1,22 @@
 
 
 #include "parser.h"
+#include "error.h"
 #include "debug.h"
 
 #include <ctype.h>
-#include <setjmp.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#define throw(format,args...) throw_exception(ERROR_TYPE_PARSER, format, ##args);
+
+#define throw_str(str, len, format, args...) throw_exception_str(ERROR_TYPE_PARSER, \
+                                                                str, len, format, ##args);
+
+#define throw_buf(beg, end, format, args...) throw_exception_buf(ERROR_TYPE_PARSER, \
+                                                                beg, end, format, ##args);
 
 
 typedef enum element {
@@ -17,38 +25,22 @@ typedef enum element {
     ELEMENT_QUOTE,
     ELEMENT_DOT,
     ELEMENT_NUMBER,
+    ELEMENT_SPECIAL,
     ELEMENT_TEXT,
     ELEMENT_LAST
 } Element;
-
-typedef enum error {
-    ERROR_NONE,
-    ERROR_UNKNOWN,
-    ERROR_LAST
-} Error;
-
-static jmp_buf _parserEnv;
 
 static int isbrace(int c)
 {
     return ((char)c) == '(' || ((char)c) == ')' ? 1 : 0;
 }
 
-static void throw_exception(const char *msg, const char *str, unsigned len, Error error)
-{
-    char buf[len + 1];
-    memcpy(buf, str, len);
-    buf[len] = 0;
-    fprintf(stderr, "Error: %s in '", msg);
-    fprintf(stderr, "%s'\n", buf);
-    longjmp(_parserEnv, (int)error);
-}
-
 static unsigned get_braces_element_size(const char *begin, const char *end);
 static unsigned get_quote_element_size(const char *begin, const char *end);
 static unsigned get_number_element_size(const char *begin, const char *end);
 static unsigned get_text_element_size(const char *begin, const char *end);
-static char *find_element(const char *begin, const char *end, Element *el, unsigned *size);
+static char *find_element(
+    const char *begin, const char *end, Element *el, unsigned *size);
 
 static Object *create_object_from_element(Element el, const char *str, unsigned len);
 static Object *create_object_pair_from_string(const char *str, unsigned len);
@@ -72,7 +64,7 @@ static unsigned get_braces_element_size(const char *begin, const char *end)
         it++;
     } while (count > 0 && it != end);
     if (count != 0) {
-        throw_exception("invalid braces count", begin, end - begin, ERROR_UNKNOWN);
+        throw_buf(begin, end, "invalid braces count");
     }
     return size;
 }
@@ -95,7 +87,7 @@ static unsigned get_quote_element_size(const char *begin, const char *end)
             it++;
         } while (*it != '\"' && it != end);
         if (*it != '\"') {
-            throw_exception("unescaped quote", begin, end - begin, ERROR_UNKNOWN);
+            throw_buf(begin, end, "unescaped quote");
         }
     }
     return size;
@@ -108,8 +100,7 @@ static unsigned get_number_element_size(const char *begin, const char *end)
 
     do {
         if (!isdigit(*it)) {
-            throw_exception("invalid number representation",
-                            begin, end - begin, ERROR_UNKNOWN);
+            throw_buf(begin, end, "invalid number representation");
         }
         size++;                
         it++;
@@ -146,7 +137,7 @@ static char *find_element(const char *begin, const char *end, Element *el, unsig
             continue;
         }
         else if (!isprint(*it)) {
-            throw_exception("invalid character", begin, end - begin, ERROR_UNKNOWN);
+            throw_buf(begin, end, "invalid character");
         }
         else if (*it == '(') {
             *el = ELEMENT_BRACE;
@@ -168,6 +159,11 @@ static char *find_element(const char *begin, const char *end, Element *el, unsig
             *size = get_number_element_size(it, end);
             break;
         }
+        else if (*it == '#') {
+            *el = ELEMENT_SPECIAL;
+            *size = get_text_element_size(it + 1, end) + 1;
+            break;
+        }
         else {
             *el = ELEMENT_TEXT;
             *size = get_text_element_size(it, end);
@@ -185,7 +181,7 @@ static Object *create_object_string_from_string(const char *str, unsigned size)
     if (size < 2
         || size > STRING_MAX_LENGTH
         || (str[0] != '\'' && str[0] != '"' && str[size - 2] != '"'))
-        throw_exception("unexpected quote position", str, size, ERROR_UNKNOWN);
+        throw_str(str, size, "unexpected quote position");
 
     obj = object_create(OBJECT_TYPE_STRING);
     text = &((String*)obj)->cstr;
@@ -224,6 +220,27 @@ static Object *create_object_unbound_from_string(const char *str, unsigned size)
     return obj;
 }
 
+static Object *create_object_from_special_string(const char *str, unsigned size)
+{
+    if (strncmp(str, "#nil", size) == 0) {
+        return NULL;
+    }
+    else if (strncmp(str, "#true", size) == 0) {
+        Boolean *obj = (Boolean*)object_create(OBJECT_TYPE_BOOLEAN);
+        obj->value = true;
+        return (Object*)obj;
+    }
+    else if (strncmp(str, "#false", size) == 0) {
+        Boolean *obj = (Boolean*)object_create(OBJECT_TYPE_BOOLEAN);
+        obj->value = true;
+        return (Object*)obj;
+    }
+    else {
+        throw_str(str, size, "unknown special symbol");
+    }
+    return NULL;
+}
+
 static Object *create_object_pair_from_string(const char *str, unsigned size)
 {
     const char *begin = str + 1;
@@ -241,16 +258,29 @@ static Object *create_object_pair_from_string(const char *str, unsigned size)
 
         do {
             Pair *pair = (Pair*)obj;
-            pair->first = create_object_from_element(el, it, size);
+            if (pair->first == NULL) {
+                pair->first = create_object_from_element(el, it, size);
+            }
+            else {
+                pair->rest = create_object_from_element(el, it, size);
+            }
             it = find_element(it + size, end, &el, &size);
             if (el != ELEMENT_INVALID) {
-                obj = object_create(OBJECT_TYPE_PAIR);
-                pair->rest = obj;
+                if (pair->rest != NULL) {
+                    throw_buf(it + size, end, "unexpected in line");
+                }
+                if (el != ELEMENT_DOT) {
+                    obj = object_create(OBJECT_TYPE_PAIR);
+                    pair->rest = obj;
+                }
+                else {
+                    it = find_element(it + size, end, &el, &size);
+                }
             }
         } while (it != end);
     }
     else {
-        throw_exception("unexpected in line", begin, end - begin, ERROR_UNKNOWN);
+        throw_buf(begin, end, "unexpected in line");
     }
 
     return head;
@@ -265,11 +295,13 @@ static Object *create_object_from_element(Element el, const char *str, unsigned 
         return create_object_string_from_string(str, size);
     case ELEMENT_NUMBER:
         return create_object_integer_from_string(str, size);
+    case ELEMENT_SPECIAL:
+        return create_object_from_special_string(str, size);
     case ELEMENT_TEXT:
         return create_object_unbound_from_string(str, size);
     case ELEMENT_INVALID:
     default:
-        throw_exception("unexpected element", str, size, ERROR_UNKNOWN);
+        throw_str(str, size, "unexpected element");
     }
     return NULL;
 }
@@ -281,18 +313,12 @@ Object *parser_create_object_from_string(const char *str)
     char *it;
     Element el;
     unsigned size;
-    int errorCode;
-
-    errorCode = (Error)setjmp(_parserEnv);
-    if (errorCode != ERROR_NONE) {
-        return NULL;
-    }
 
     it = find_element(str, str + len, &el, &size);
     obj = create_object_from_element(el, it, size);
 
     if (find_element(it + size, str + len, &el, &size) != (str + len)) {
-        throw_exception("Multiple expressions not supported", it, size, ERROR_UNKNOWN);
+        throw_str(it, size, "Multiple expressions not supported");
     }
 
     return obj;

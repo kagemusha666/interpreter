@@ -2,43 +2,26 @@
 
 #include "core.h"
 #include "env.h"
+#include "error.h"
 #include "debug.h"
 
-#include <setjmp.h>
-#include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 
-typedef enum error {
-    ERROR_NONE,
-    ERROR_UNKNOWN,
-    ERROR_UNBOUND,
-    ERROR_INVALID_ARGS,
-    ERROR_LAST
-} Error;
+#define throw(format,args...) throw_exception(ERROR_TYPE_CORE, format, ##args);
 
-static jmp_buf _coreEnv;
 
 static Object *apply(Object *proc, Object *args, Env *env);
 static Object *eval(Object *exp, Env *env);
 
 
-static void throw_exception(Error error, const char *format, ...)
-{
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-    longjmp(_coreEnv, (int)error);
-}
-
 static Object *lookup_variable(Object *exp, Env *env)
 {
     Object *obj = env_lookup_variable(env, (Unbound*)exp);
     if (obj == NULL) {
-        throw_exception(ERROR_UNBOUND, "Unbound variable %s", object_to_string(exp));
+        throw("Unbound variable %s", object_to_string(exp));
     }
     return obj;
 }
@@ -76,8 +59,7 @@ static Object *eval_definition(Object *args, Env *env)
         List *list = (List*)var;
 
         if (list->item == NULL || object_get_type(list->item) != OBJECT_TYPE_VARIABLE) {
-            throw_exception(ERROR_INVALID_ARGS,
-               "Invalid define pattern  %s", object_to_string((Object*)list));
+            throw("Invalid define pattern  %s", object_to_string((Object*)list));
         }
 
         proc = (Proc*)object_create(OBJECT_TYPE_PROCEDURE);
@@ -94,7 +76,7 @@ static Object *eval_definition(Object *args, Env *env)
     }
 
     if (!env_define_variable(env, (Unbound*)var, obj)) {
-        throw_exception(ERROR_UNKNOWN, "Can't define variable %s", object_to_string(obj));
+        throw("Can't define variable %s", object_to_string(obj));
     }
     return obj;
 }
@@ -106,7 +88,7 @@ static Object *eval_assignment(Object *args, Env *env)
     Object *obj = eval(exp, env);
 
     if (!env_set_variable(env, (Unbound*)var, obj)) {
-        throw_exception(ERROR_UNKNOWN, "Can't assign variable %s", object_to_string(obj));
+        throw("Can't assign variable %s", object_to_string(obj));
     }
     return obj;
 }
@@ -114,11 +96,11 @@ static Object *eval_assignment(Object *args, Env *env)
 static Object *eval_if(Object *args, Env *env)
 {
     List *list = (List*)args;
-    
-    if (core_get_list_size((Object*)list) > 3) {
-        throw_exception(ERROR_INVALID_ARGS, "Invalid if pattern in %s",
-                        object_to_string(args));
+
+    if (core_get_list_size((Object*)list) != 3) {
+        throw("Invalid pattern 'if' in %s", object_to_string(args));
     }
+
     return core_object_to_bool(eval(list->item, env))
         ? eval(list->next->item, env) : eval(list->next->next->item, env);
 }
@@ -153,8 +135,7 @@ static Object *eval_cond(Object *args, Env *env)
     return NULL;
 
 error:
-    throw_exception(ERROR_INVALID_ARGS, "Invalid cond pattern in %s",
-                    object_to_string(args));
+    throw("Invalid cond pattern in %s", object_to_string(args));
     return NULL;
 }
 
@@ -179,7 +160,7 @@ static Object *make_procedure(Object *exp, Env *env)
 
     if (object_get_type(args) != OBJECT_TYPE_PAIR
         || object_get_type(body) != OBJECT_TYPE_PAIR) {
-        throw_exception(ERROR_INVALID_ARGS, "Invalid lambda expression");
+        throw("Invalid lambda expression");
     }
 
     proc = (Proc*)object_create(OBJECT_TYPE_PROCEDURE);
@@ -196,15 +177,15 @@ static Env *extend_environment(Pair *args, Pair *vals, Env *env)
 
     do {
         if (!env_define_variable(env, (Unbound*)args->first, vals->first)) {
-            throw_exception(ERROR_UNKNOWN, "Can't extend environment with variable %s",
-                            object_to_string(args->first));
+            throw("Can't extend environment with variable %s",
+                  object_to_string(args->first));
         }
         args = (Pair*)args->rest;
         vals = (Pair*)vals->rest;
     } while (args != NULL && vals != NULL);
 
     if (args != vals) {
-        throw_exception(ERROR_INVALID_ARGS, "Wrong number of arguments");
+        throw("Wrong number of arguments");
     }
 
     return env;
@@ -223,14 +204,9 @@ static Object *apply(Object *operator, Object *args, Env *env)
         Native *proc = (Native*)operator;
         unsigned num_of_args = core_get_list_size(args);
         if ((proc->rst == 0 && num_of_args > proc->req) || num_of_args < proc->req) {
-            throw_exception(ERROR_INVALID_ARGS,
-                            "Invalid args number %u", num_of_args);
+            throw("Invalid args number %u", num_of_args);
         }
         res = proc->native_function(args);
-    }
-    if (res == NULL) {
-        throw_exception(ERROR_INVALID_ARGS,
-                        "Function call %s failed", object_to_string(operator));
     }
     return res;
 }
@@ -239,7 +215,10 @@ static Object *eval(Object *exp, Env *env)
 {
     Object *obj = NULL;
 
-    if (exp->type != OBJECT_TYPE_PAIR) {
+    if (exp == NULL) {
+        obj = NULL;
+    }
+    else if (exp->type != OBJECT_TYPE_PAIR) {
         obj = exp->type != OBJECT_TYPE_UNBOUND ? exp : lookup_variable(exp, env);
     }
     else {
@@ -247,7 +226,7 @@ static Object *eval(Object *exp, Env *env)
         Object *operands = ((Pair*)exp)->rest;
 
         if (operator->type != OBJECT_TYPE_UNBOUND) {
-            throw_exception(ERROR_INVALID_ARGS, "Invalid type to apply");
+            throw("Invalid type to apply");
         }
         else {
             const char *str = ((Unbound*)operator)->cstr;
@@ -286,8 +265,7 @@ unsigned core_get_list_size(Object *obj)
     assert(object_get_type(obj) == OBJECT_TYPE_LIST);
 
     while (list != NULL) {
-        if (list->item != NULL)
-            res++;
+        res++;
         list = list->next;
     }
     return res;
@@ -309,8 +287,7 @@ bool core_object_to_bool(Object *obj)
         case OBJECT_TYPE_NATIVE:
             return obj != NULL;
         default:
-            throw_exception(ERROR_INVALID_ARGS,
-                            "Can't cast %s to bool", object_to_string(obj));
+            throw("Can't cast %s to bool", object_to_string(obj));
         }
     }
     return false;
@@ -325,14 +302,6 @@ Object *core_object_to_bool_object(Object *obj)
 
 Object *core_eval(Object *exp, Env *env)
 {
-    int errorCode;
-
-    assert(exp != NULL);
     assert(env != NULL);
-
-    errorCode = (Error)setjmp(_coreEnv);
-    if (errorCode != ERROR_NONE) {
-        return NULL;
-    }
     return eval(exp, env);
 }

@@ -244,6 +244,9 @@ static void pair_dump(Object *obj)
         if (first != NULL && first->type != OBJECT_TYPE_PAIR) {
             printf(" ");
         }
+        if (rest->type != OBJECT_TYPE_PAIR) {
+            printf(". ");
+        }
         rest->dump(rest);
     }
 
@@ -436,11 +439,12 @@ const char* object_to_string(Object *obj)
 
 void object_dump(Object *obj)
 {
-    assert(obj != NULL);
-    if (obj->type == OBJECT_TYPE_PAIR) {
-        printf("(");
+    if (obj != NULL) {
+        if (obj->type == OBJECT_TYPE_PAIR) {
+            printf("(");
+        }
+        obj->dump(obj);
     }
-    obj->dump(obj);
 }
 
 void object_mark(Object *obj)
