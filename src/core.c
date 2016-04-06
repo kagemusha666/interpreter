@@ -12,9 +12,16 @@
 
 #define throw(format,args...) throw_exception(ERROR_TYPE_CORE, format, ##args);
 
+typedef enum context {
+    CONTEXT_UNKNOWN,
+    CONTEXT_APPLICATION,
+    CONTEXT_EVALUATION,
+    CONTEXT_RETURN,
+    CONTEXT_LAST
+} Context;
 
 static Object *apply(Object *proc, Object *args, Env *env);
-static Object *eval(Object *exp, Env *env);
+static Object *eval(Object *exp, Env *env, Context ctx);
 
 
 static Object *lookup_variable(Object *exp, Env *env)
@@ -26,7 +33,7 @@ static Object *lookup_variable(Object *exp, Env *env)
     return obj;
 }
 
-static Object *list_of_values(Object *args, Env *env)
+static Object *list_of_values(Object *args, Env *env, Context ctx)
 {
     List *res;
 
@@ -37,7 +44,7 @@ static Object *list_of_values(Object *args, Env *env)
         List **ptr = &res;
         do {
             *ptr = (List*)object_create(OBJECT_TYPE_LIST);
-            (*ptr)->item = eval(list->item, env);
+            (*ptr)->item = eval(list->item, env, CONTEXT_EVALUATION);
             list = list->next;
             ptr = &(*ptr)->next;
         } while (list != NULL);
@@ -48,7 +55,7 @@ static Object *list_of_values(Object *args, Env *env)
     return (Object*)res;
 }
 
-static Object *eval_definition(Object *args, Env *env)
+static Object *eval_definition(Object *args, Env *env, Context ctx)
 {
     Object *var = ((Pair*)args)->first;
     Object *exp = (Object*)((Pair*)args)->rest;
@@ -72,7 +79,7 @@ static Object *eval_definition(Object *args, Env *env)
     }
     else {
         exp = ((Pair*)exp)->first;
-        obj = eval(exp, env);
+        obj = eval(exp, env, CONTEXT_EVALUATION);
     }
 
     if (!env_define_variable(env, (Unbound*)var, obj)) {
@@ -81,11 +88,11 @@ static Object *eval_definition(Object *args, Env *env)
     return obj;
 }
 
-static Object *eval_assignment(Object *args, Env *env)
+static Object *eval_assignment(Object *args, Env *env, Context ctx)
 {
     Object *var = ((Pair*)args)->first;
     Object *exp = ((Pair*)((Pair*)args)->rest)->first;
-    Object *obj = eval(exp, env);
+    Object *obj = eval(exp, env, CONTEXT_EVALUATION);
 
     if (!env_set_variable(env, (Unbound*)var, obj)) {
         throw("Can't assign variable %s", object_to_string(obj));
@@ -93,7 +100,7 @@ static Object *eval_assignment(Object *args, Env *env)
     return obj;
 }
 
-static Object *eval_if(Object *args, Env *env)
+static Object *eval_if(Object *args, Env *env, Context ctx)
 {
     List *list = (List*)args;
 
@@ -101,11 +108,11 @@ static Object *eval_if(Object *args, Env *env)
         throw("Invalid pattern 'if' in %s", object_to_string(args));
     }
 
-    return core_object_to_bool(eval(list->item, env))
-        ? eval(list->next->item, env) : eval(list->next->next->item, env);
+    return core_object_to_bool(eval(list->item, env, CONTEXT_EVALUATION))
+        ? eval(list->next->item, env, ctx) : eval(list->next->next->item, env, ctx);
 }
 
-static Object *eval_cond(Object *args, Env *env)
+static Object *eval_cond(Object *args, Env *env, Context ctx)
 {
     List *list = (List*)args;
     List *clause;
@@ -119,16 +126,18 @@ static Object *eval_cond(Object *args, Env *env)
         }
         pred = clause->item;
         action = clause->next->item;
+        // If it is the last clause:
         if (pred != NULL && object_get_type((Object*)pred) == OBJECT_TYPE_UNBOUND
             && strcmp(((Unbound*)pred)->cstr, "else") == 0) {
 
             if (list->next == NULL)
-                return eval(action, env);
+                return eval(action, env, ctx);
             else
                 goto error;
         }
-        else if (core_object_to_bool(eval((Object*)pred, env)) != false) {
-            return eval(action, env);
+        else if (core_object_to_bool(
+                     eval((Object*)pred, env, CONTEXT_EVALUATION)) != false) {
+            return eval(action, env, ctx);
         }
         list = list->next;
     } while (list != NULL);
@@ -139,13 +148,49 @@ error:
     return NULL;
 }
 
-static Object *eval_sequence(Object *seq, Env *env)
+static void change_environment(Env *env, Pair *args, Pair *vals)
+{
+    do {
+        if (!env_set_variable(env, (Unbound*)args->first, vals->first)) {
+            throw("Can't change environment with variable %s",
+                  object_to_string(args->first));
+        }
+        args = (Pair*)args->rest;
+        vals = (Pair*)vals->rest;
+    } while (args != NULL && vals != NULL);
+    assert(args == vals);
+}
+
+static Object *eval_sequence(Object *seq, Env *env, Context ctx, Proc *proc)
 {
     Object *obj;
     List *list = (List*)seq;
 
     do {
-        obj = eval(list->item, env);
+        if (list->next != NULL || ctx != CONTEXT_APPLICATION) {
+            obj = eval(list->item, env, ctx);
+        }
+        else { // Tail recursive optimization
+            ctx = CONTEXT_RETURN;
+            obj = eval(list->item, env, ctx);
+
+            // If obj is a function call
+            ctx = CONTEXT_APPLICATION;
+            if (obj != NULL && obj->type == OBJECT_TYPE_PAIR
+                && ((Pair*)obj)->first->type == OBJECT_TYPE_UNBOUND) {
+                Object *proc_next = eval(((Pair*)obj)->first, env, ctx);
+                Object *args = list_of_values(((Pair*)obj)->rest, env, ctx);
+
+                if (proc_next != (Object*)proc) {
+                    obj = apply(proc_next, args, env);
+                }
+                else {
+                    change_environment(env, proc->args, (Pair*)args);
+                    list = (List*)seq;
+                    continue;
+                }
+            }
+        }
         list = list->next;
     } while (list != NULL);
     return obj;
@@ -198,7 +243,8 @@ static Object *apply(Object *operator, Object *args, Env *env)
     if (operator->type == OBJECT_TYPE_PROCEDURE) {
         Proc *proc = (Proc*)operator;
         res = eval_sequence((Object*)proc->body,
-                            extend_environment(proc->args, (Pair*)args, env));
+                            extend_environment(proc->args, (Pair*)args, env),
+                            CONTEXT_APPLICATION, proc);
     }
     else if (operator->type == OBJECT_TYPE_NATIVE) {
         Native *proc = (Native*)operator;
@@ -211,7 +257,7 @@ static Object *apply(Object *operator, Object *args, Env *env)
     return res;
 }
 
-static Object *eval(Object *exp, Env *env)
+static Object *eval(Object *exp, Env *env, Context ctx)
 {
     Object *obj = NULL;
 
@@ -232,26 +278,27 @@ static Object *eval(Object *exp, Env *env)
             const char *str = ((Unbound*)operator)->cstr;
 
             if (strcmp(str, "define") == 0) {
-                obj = eval_definition(operands, env);
+                obj = eval_definition(operands, env, ctx);
             }
             else if (strcmp(str, "set!") == 0) {
-                obj = eval_assignment(operands, env);
+                obj = eval_assignment(operands, env, ctx);
             }
             else if (strcmp(str, "if") == 0) {
-                obj = eval_if(operands, env);
+                obj = eval_if(operands, env, ctx);
             }
             else if (strcmp(str, "cond") == 0) {
-                obj = eval_cond(operands, env);
+                obj = eval_cond(operands, env, ctx);
             }
             else if (strcmp(str, "begin") == 0) {
-                obj = eval_sequence(operands, env);
+                obj = eval_sequence(operands, env, ctx, NULL);
             }
             else if (strcmp(str, "lambda") == 0) {
                 obj = make_procedure(operands, env);
             }
             else {
-                obj = apply(eval(operator, env),
-                            list_of_values(operands, env), env);
+                obj = (ctx == CONTEXT_RETURN) ? exp
+                    : apply(eval(operator, env, ctx),
+                            list_of_values(operands, env, ctx), env);
             }
         }
     }
@@ -302,6 +349,7 @@ Object *core_object_to_bool_object(Object *obj)
 
 Object *core_eval(Object *exp, Env *env)
 {
+    Context ctx = CONTEXT_EVALUATION;
     assert(env != NULL);
-    return eval(exp, env);
+    return eval(exp, env, ctx);
 }
