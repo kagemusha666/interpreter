@@ -109,6 +109,26 @@ static Object *equal(Object *obj)
     return (Object*)ans;
 }
 
+static Object *greater(Object *obj)
+{
+    Boolean *ans = (Boolean*)object_create(OBJECT_TYPE_BOOLEAN);
+    List *list = (List*)obj;
+    Integer *left = (Integer*)list->item;
+    Integer *right = (Integer*)list->next->item;
+    ans->value = left->value > right->value;
+    return (Object*)ans;
+}
+
+static Object *less(Object *obj)
+{
+    Boolean *ans = (Boolean*)object_create(OBJECT_TYPE_BOOLEAN);
+    List *list = (List*)obj;
+    Integer *left = (Integer*)list->item;
+    Integer *right = (Integer*)list->next->item;
+    ans->value = left->value < right->value;
+    return (Object*)ans;
+}
+
 static Object *display(Object *obj)
 {
     List *list = (List*)obj;
@@ -120,13 +140,13 @@ static Object *display(Object *obj)
     return NULL;
 }
 
-static size_t read_buffer(char *buf, size_t len)
+static size_t read_buffer(FILE *file, char *buf, size_t len)
 {
     char *line = NULL;
     size_t size = 0;
     ssize_t read;
 
-    read = getline(&line, &size, stdin);
+    read = getline(&line, &size, file);
     memcpy(buf, line, len);
     size -= read;
 
@@ -154,7 +174,9 @@ int main(int argc, char *argv[])
     size_t size;
     ssize_t read;
     Error error;
+    Object *object;
 
+    FILE *file = argc == 2 ? fopen(argv[1], "r") : stdin;
     char *buffer = (char*)malloc(INPUT_BUFFER_MAX_SIZE);
     Env *env = env_extend(NULL);
 
@@ -163,27 +185,31 @@ int main(int argc, char *argv[])
     env_add_native_function(env, "cdr", 1, 0, cdr);
     env_add_native_function(env, "+", 1, 1, plus);
     env_add_native_function(env, "=", 1, 1, equal);
+    env_add_native_function(env, ">", 2, 0, greater);
+    env_add_native_function(env, "<", 2, 0, less);
     env_add_native_function(env, "display", 1, 1, display);
 
-    while (!feof(stdin)) {
+    while (file != NULL && !feof(file)) {
         memset(buffer, 0, INPUT_BUFFER_MAX_SIZE);
         size = INPUT_BUFFER_MAX_SIZE;
         read = 0;
 
-        printf("\nREPL ]=>");
+        if (file == stdin) {
+            printf("\nREPL ]=>");
+        }
+        while (!feof(file) && size > 0) {
+            read += read_buffer(file, buffer + read, size - read);
 
-        while (!feof(stdin) && size > 0) {
-            read += read_buffer(buffer + read, size - read);
-
-            if (is_expression_complete(buffer, read)) {
-
+            if (read > 1 && is_expression_complete(buffer, read)) {
                 error = try_and_catch_error();
                 if (error != ERROR_TYPE_NONE) {
                     printf("Catched error in component %s.\n", error_to_string(error));
                 }
                 else {
-                    object_dump(core_eval(parser_create_object_from_string(buffer), env));
-//                  object_dump(parser_create_object_from_string(buffer));
+                    object = core_eval(parser_create_object_from_string(buffer), env);
+                    if (file == stdin) {
+                        object_dump(object);
+                    }
                 }
                 break;
             }
@@ -191,6 +217,8 @@ int main(int argc, char *argv[])
     }
 
     free(buffer);
-
+    if (file != NULL && file != stdin) {
+        fclose(file);
+    }
     return EXIT_SUCCESS;
 }
