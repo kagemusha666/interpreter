@@ -31,10 +31,7 @@ typedef enum type
 typedef struct object
 {
     Type type;
-    struct gc_attributes {
-        struct object *next; /* next allocated object */
-        char marked;
-    } gc;
+    bool marked;
     const char *(*to_string)(struct object*);
     void (*dump)(struct object*);
     void (*mark)(struct object*);
@@ -44,7 +41,7 @@ typedef struct object
 typedef Object *(*NativeFunction)(Object *);
 
 typedef struct frame {
-    const char *cstr;
+    char *cstr;
     Object *object;
     struct frame *next;
 } Frame;
@@ -99,7 +96,6 @@ typedef struct environment
 typedef struct procedure
 {
     Object object;
-    char *cstr;
     Pair *args;
     Pair *body;
     Env *env;

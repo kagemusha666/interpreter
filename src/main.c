@@ -68,6 +68,7 @@ static Object *plus(Object *obj)
 {
     Integer *ans;
     List *list = (List*)obj;
+
     ans = (Integer*)object_create(OBJECT_TYPE_INTEGER);
 
     while (list != NULL) {
@@ -76,6 +77,31 @@ static Object *plus(Object *obj)
                   object_to_string(list->item));            
         }
         ans->value += ((Integer*)list->item)->value;
+        list = list->next;
+    }
+    return (Object*)ans;
+}
+
+static Object *minus(Object *obj)
+{
+    Integer *ans;
+    List *list = (List*)obj;
+
+    ans = (Integer*)object_create(OBJECT_TYPE_INTEGER);
+
+    if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
+        throw("Wrong type of argument %s: expected numeric",
+              object_to_string(list->item));            
+    }
+    ans->value = ((Integer*)list->item)->value;
+    list = list->next;
+
+    while (list != NULL) {
+        if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
+            throw("Wrong type of argument %s: expected numeric",
+                  object_to_string(list->item));            
+        }
+        ans->value -= ((Integer*)list->item)->value;
         list = list->next;
     }
     return (Object*)ans;
@@ -94,7 +120,7 @@ static Object *equal(Object *obj)
         if (object_get_type(list->item) != OBJECT_TYPE_INTEGER) {
             throw("Wrong type of argument %s: expected numeric",
                   object_to_string(list->item));            
-            return NULL;
+            list->item->type = OBJECT_TYPE_INTEGER;
         }
         if (!isPrevVarInit) {
             prevVar = ((Integer*)list->item)->value;
@@ -184,6 +210,7 @@ int main(int argc, char *argv[])
     env_add_native_function(env, "car", 1, 0, car);
     env_add_native_function(env, "cdr", 1, 0, cdr);
     env_add_native_function(env, "+", 1, 1, plus);
+    env_add_native_function(env, "-", 1, 1, minus);
     env_add_native_function(env, "=", 1, 1, equal);
     env_add_native_function(env, ">", 2, 0, greater);
     env_add_native_function(env, "<", 2, 0, less);
@@ -200,10 +227,15 @@ int main(int argc, char *argv[])
         while (!feof(file) && size > 0) {
             read += read_buffer(file, buffer + read, size - read);
 
-            if (read > 1 && is_expression_complete(buffer, read)) {
+            if (read > 1 && is_expression_complete(buffer, read) && strlen(buffer) > 0) {
                 error = try_and_catch_error();
                 if (error != ERROR_TYPE_NONE) {
                     printf("Catched error in component %s.\n", error_to_string(error));
+                    if (file != stdin) {
+                        fclose(file);
+                        free(buffer);
+                        return EXIT_FAILURE;
+                    }
                 }
                 else {
                     object = core_eval(parser_create_object_from_string(buffer), env);

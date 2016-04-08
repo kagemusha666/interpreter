@@ -58,7 +58,7 @@ void throw_exception_str(Error error,
     va_end(args);
     printf("\n");
 
-    printf("Invalid string: %s\n", _msg);
+    printf("Invalid string: '%s'\n", _msg);
     longjmp(_env, (int)error);
 }
 
@@ -78,6 +78,6 @@ void throw_exception_buf(Error error,
     va_end(args);
     printf("\n");
 
-    printf("Invalid string: %s\n", _msg);
+    printf("Invalid string: '%s'\n", _msg);
     longjmp(_env, (int)error);
 }

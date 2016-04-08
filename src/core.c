@@ -2,6 +2,7 @@
 
 #include "core.h"
 #include "env.h"
+#include "gc.h"
 #include "error.h"
 #include "debug.h"
 
@@ -26,16 +27,23 @@ static Object *eval(Object *exp, Env *env, Context ctx);
 
 static Object *lookup_variable(Object *exp, Env *env)
 {
+    GC_BEGIN;
+    GC_PUSH2(exp, env);
+
     Object *obj = env_lookup_variable(env, (Unbound*)exp);
     if (obj == NULL) {
         throw("Unbound variable %s", object_to_string(exp));
     }
+
+    GC_END;
     return obj;
 }
 
 static Object *list_of_values(Object *args, Env *env, Context ctx)
 {
     List *res;
+    GC_BEGIN;
+    GC_PUSH2(args, env);
 
     if (args != NULL) {
         assert(object_get_type(args) == OBJECT_TYPE_LIST);
@@ -44,7 +52,10 @@ static Object *list_of_values(Object *args, Env *env, Context ctx)
         List **ptr = &res;
         do {
             *ptr = (List*)object_create(OBJECT_TYPE_LIST);
+            GC_PUSH1(*ptr);
             (*ptr)->item = eval(list->item, env, CONTEXT_EVALUATION);
+            GC_PUSH1((*ptr)->item);
+
             list = list->next;
             ptr = &(*ptr)->next;
         } while (list != NULL);
@@ -52,6 +63,7 @@ static Object *list_of_values(Object *args, Env *env, Context ctx)
     else {
         res = (List*)object_create(OBJECT_TYPE_LIST);
     }
+    GC_END;
     return (Object*)res;
 }
 
@@ -60,6 +72,8 @@ static Object *eval_definition(Object *args, Env *env, Context ctx)
     Object *var = ((Pair*)args)->first;
     Object *exp = (Object*)((Pair*)args)->rest;
     Object *obj;
+    GC_BEGIN;
+    GC_PUSH2(args, env);
 
     if (object_get_type(var) == OBJECT_TYPE_LIST) {
         Proc *proc;
@@ -81,6 +95,7 @@ static Object *eval_definition(Object *args, Env *env, Context ctx)
         exp = ((Pair*)exp)->first;
         obj = eval(exp, env, CONTEXT_EVALUATION);
     }
+    GC_PUSH1(obj);
 
     if (!env_define_variable(env, (Unbound*)var, obj)) {
         throw("Can't define variable %s", object_to_string(obj));
@@ -93,23 +108,38 @@ static Object *eval_assignment(Object *args, Env *env, Context ctx)
     Object *var = ((Pair*)args)->first;
     Object *exp = ((Pair*)((Pair*)args)->rest)->first;
     Object *obj = eval(exp, env, CONTEXT_EVALUATION);
+    GC_BEGIN;
+    GC_PUSH2(args, env);
 
     if (!env_set_variable(env, (Unbound*)var, obj)) {
         throw("Can't assign variable %s", object_to_string(obj));
     }
+    GC_END;
     return obj;
 }
 
 static Object *eval_if(Object *args, Env *env, Context ctx)
 {
     List *list = (List*)args;
+    Object *obj;
+    GC_BEGIN;
+    GC_PUSH2(args, env);
 
     if (core_get_list_size((Object*)list) != 3) {
         throw("Invalid pattern 'if' in %s", object_to_string(args));
     }
 
-    return core_object_to_bool(eval(list->item, env, CONTEXT_EVALUATION))
-        ? eval(list->next->item, env, ctx) : eval(list->next->next->item, env, ctx);
+    obj = eval(list->item, env, CONTEXT_EVALUATION);
+    GC_PUSH1(obj);
+
+    if (core_object_to_bool(obj)) {
+        obj = eval(list->next->item, env, ctx);
+    }
+    else {
+        obj = eval(list->next->next->item, env, ctx);
+    }
+    GC_END;
+    return obj;
 }
 
 static Object *eval_cond(Object *args, Env *env, Context ctx)
@@ -118,11 +148,16 @@ static Object *eval_cond(Object *args, Env *env, Context ctx)
     List *clause;
     Object *pred;
     Object *action;
+    Object *res;
+    GC_BEGIN;
+    GC_PUSH2(args, env);
 
     do {
         clause = (List*)list->item;
         if (clause == NULL || object_get_type((Object*)clause) != OBJECT_TYPE_LIST) {
-            goto error;
+            throw("Invalid cond pattern in %s", object_to_string(args));
+            res = NULL;
+            break;
         }
         pred = clause->item;
         action = clause->next->item;
@@ -130,26 +165,35 @@ static Object *eval_cond(Object *args, Env *env, Context ctx)
         if (pred != NULL && object_get_type((Object*)pred) == OBJECT_TYPE_UNBOUND
             && strcmp(((Unbound*)pred)->cstr, "else") == 0) {
 
-            if (list->next == NULL)
-                return eval(action, env, ctx);
-            else
-                goto error;
+            if (list->next == NULL) {
+                res = eval(action, env, ctx);
+                break;
+            }
+            else {
+                throw("Invalid cond pattern in %s", object_to_string(args));
+                res = NULL;
+                break;
+            }
         }
-        else if (core_object_to_bool(
-                     eval((Object*)pred, env, CONTEXT_EVALUATION)) != false) {
-            return eval(action, env, ctx);
+        else  {
+            pred = eval((Object*)pred, env, CONTEXT_EVALUATION);
+            GC_PUSH1(pred);
+            if (core_object_to_bool(pred) != false) {
+                res = eval(action, env, ctx);
+                break;
+            }
         }
         list = list->next;
     } while (list != NULL);
-    return NULL;
-
-error:
-    throw("Invalid cond pattern in %s", object_to_string(args));
-    return NULL;
+    GC_END;
+    return res;
 }
 
 static void change_environment(Env *env, Pair *args, Pair *vals)
 {
+    GC_BEGIN;
+    GC_PUSH3(env, args, vals);
+
     do {
         if (!env_set_variable(env, (Unbound*)args->first, vals->first)) {
             throw("Can't change environment with variable %s",
@@ -159,27 +203,36 @@ static void change_environment(Env *env, Pair *args, Pair *vals)
         vals = (Pair*)vals->rest;
     } while (args != NULL && vals != NULL);
     assert(args == vals);
+    GC_END;
 }
 
 static Object *eval_sequence(Object *seq, Env *env, Context ctx, Proc *proc)
 {
     Object *obj;
     List *list = (List*)seq;
+    GC_BEGIN;
+begin:
+    GC_PUSH3(seq, env, proc);
 
     do {
+
         if (list->next != NULL || ctx != CONTEXT_APPLICATION) {
             obj = eval(list->item, env, ctx);
+            GC_PUSH1(obj);
         }
         else { // Tail recursive optimization
             ctx = CONTEXT_RETURN;
             obj = eval(list->item, env, ctx);
+            GC_PUSH1(obj);
 
             // If obj is a function call
             ctx = CONTEXT_APPLICATION;
             if (obj != NULL && obj->type == OBJECT_TYPE_PAIR
                 && ((Pair*)obj)->first->type == OBJECT_TYPE_UNBOUND) {
                 Object *proc_next = eval(((Pair*)obj)->first, env, ctx);
+                GC_PUSH1(proc_next);
                 Object *args = list_of_values(((Pair*)obj)->rest, env, ctx);
+                GC_PUSH1(args);
 
                 if (proc_next != (Object*)proc) {
                     obj = apply(proc_next, args, env);
@@ -187,12 +240,15 @@ static Object *eval_sequence(Object *seq, Env *env, Context ctx, Proc *proc)
                 else {
                     change_environment(env, proc->args, (Pair*)args);
                     list = (List*)seq;
-                    continue;
+                    GC_END;
+                    goto begin;
                 }
             }
         }
         list = list->next;
     } while (list != NULL);
+
+    GC_END;
     return obj;
 }
 
@@ -202,6 +258,8 @@ static Object *make_procedure(Object *exp, Env *env)
     List *list = (List*)exp;
     Object *args = list->item;
     Object *body = (Object*)list->next;
+    GC_BEGIN;
+    GC_PUSH2(exp, env);
 
     if (object_get_type(args) != OBJECT_TYPE_PAIR
         || object_get_type(body) != OBJECT_TYPE_PAIR) {
@@ -213,12 +271,17 @@ static Object *make_procedure(Object *exp, Env *env)
     proc->body = (Pair*)body;
     proc->env = env;
 
+    GC_END;
     return (Object*)proc;
 }
 
 static Env *extend_environment(Pair *args, Pair *vals, Env *env)
 {
+    GC_BEGIN;
+    GC_PUSH3(args, vals, env);
+
     env = env_extend(env);
+    GC_PUSH1(env);
 
     do {
         if (!env_define_variable(env, (Unbound*)args->first, vals->first)) {
@@ -233,12 +296,15 @@ static Env *extend_environment(Pair *args, Pair *vals, Env *env)
         throw("Wrong number of arguments");
     }
 
+    GC_END;
     return env;
 }
 
 static Object *apply(Object *operator, Object *args, Env *env)
 {
     Object *res = NULL;
+    GC_BEGIN;
+    GC_PUSH3(operator, args, env);
 
     if (operator->type == OBJECT_TYPE_PROCEDURE) {
         Proc *proc = (Proc*)operator;
@@ -254,12 +320,15 @@ static Object *apply(Object *operator, Object *args, Env *env)
         }
         res = proc->native_function(args);
     }
+    GC_END;
     return res;
 }
 
 static Object *eval(Object *exp, Env *env, Context ctx)
 {
     Object *obj = NULL;
+    GC_BEGIN;
+    GC_PUSH2(exp, env);
 
     if (exp == NULL) {
         obj = NULL;
@@ -302,6 +371,7 @@ static Object *eval(Object *exp, Env *env, Context ctx)
             }
         }
     }
+    GC_END;
     return obj;
 }
 
@@ -342,14 +412,25 @@ bool core_object_to_bool(Object *obj)
 
 Object *core_object_to_bool_object(Object *obj)
 {
-   Boolean *res = (Boolean*)object_create(OBJECT_TYPE_BOOLEAN);
-   res->value = core_object_to_bool(obj);
-   return (Object*)res;
+    Boolean *res;
+    GC_BEGIN;
+    GC_PUSH1(obj);
+    res = (Boolean*)object_create(OBJECT_TYPE_BOOLEAN);
+    res->value = core_object_to_bool(obj);
+    GC_END;
+    return (Object*)res;
 }
 
 Object *core_eval(Object *exp, Env *env)
 {
-    Context ctx = CONTEXT_EVALUATION;
+    Object *obj;
     assert(env != NULL);
-    return eval(exp, env, ctx);
+    GC_BEGIN;
+    GC_PUSH2(exp, env);
+    gc_start();
+    obj =  eval(exp, env, CONTEXT_EVALUATION);
+    GC_PUSH1(obj);
+    gc_stop();
+    GC_END;
+    return obj;
 }

@@ -12,18 +12,21 @@ INSTALL=install
 
 OUTPUTDIR=$(abspath .)/build/$(ARCH)
 SOURCESDIR=$(abspath .)/src
+TESTSDIR=$(abspath .)/tests
 DESTDIR=/
 prefix=/usr/local
 
 SOURCES:=$(wildcard $(SOURCESDIR)/*.c)
 HEADERS:=$(wildcard $(SOURCESDIR)/*.h)
 OBJECTS:=$(addprefix $(OUTPUTDIR)/,$(notdir $(SOURCES:.c=.o)))
-
-#$(error SOURCES='$(SOURCES)' HEADERS='$(HEADERS)' OBJECTS='$(OBJECTS)')
+TESTS:=$(wildcard $(TESTSDIR)/*.sch)
 
 .PHONY: all install clean
 
 all: $(OUTPUTDIR)/$(PROGRAM)
+
+check: $(OUTPUTDIR)/$(PROGRAM)
+	@for test in $(TESTS); do $< $$test; done && echo "ok" || echo "fail"
 
 install: $(OUTPUTDIR)/$(PROGRAM)
 	$(INSTALL) --strip --strip-program=$(STRIP) $@ $(DESTDIR)/$(prefix)/$(PROGRAM)

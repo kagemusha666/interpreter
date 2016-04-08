@@ -1,61 +1,99 @@
 
 
 #include "gc.h"
-
-#include "debug.h"
 #include "error.h"
+#include "debug.h"
 
+#include <string.h>
+#include <stdbool.h>
 #include <stdlib.h>
 
-/*
-void gc_mark_all_objects(void)
+
+typedef struct stack {
+    Object *item;
+    struct stack *next;
+} Stack;
+
+static Stack *_stack;
+static Object *_heap[GC_OBJECT_MAX_NUMBER];
+static unsigned _objects = 0;
+static bool _started = false;
+
+void gc_start()
 {
-    for (int i = 0; i < vm->stack_size; i++)
-        object_mark(vm->stack[i]);
+    _started = true;
+    gc_clean();
 }
 
-void gc_sweep_unreached_objects(void)
+void gc_stop()
 {
-    Object **obj = &vm->last_object;
+    gc_clean();
+    _started = false;
+}
 
-    while (*obj) {
-        if (!(*obj)->vm.marked) {
-            Object *unreached = *obj;
-            *obj = unreached->vm.next;
-            object_finalize(unreached);
-            vm->object_number--;
+void gc_add(Object *obj)
+{
+    if (!(_objects < GC_OBJECT_MAX_NUMBER)) {
+        ERROR("Not enough memory! Force GC!");
+        gc_force();
+    }
+    else {
+        gc_clean();
+    }
+    _heap[_objects] = obj;
+    _objects += 1;
+}
+
+void gc_clean(void)
+{
+    if (_started && _objects > (GC_OBJECT_MAX_NUMBER * 2 / 3)) {
+        gc_force();
+    }
+}
+
+void gc_force(void)
+{
+    const unsigned num = _objects;
+    Stack *stack = _stack;
+    unsigned i;
+    Object *tmp[GC_OBJECT_MAX_NUMBER];
+
+    while (stack != NULL) {
+        object_mark(stack->item);
+        stack = stack->next;
+    }
+
+    _objects = 0;
+    for (i = 0; i < num; i++) {
+        assert(_heap[i] != NULL);
+
+        if (_heap[i]->marked) {
+            _heap[i]->marked = false;
+            tmp[_objects] = _heap[i];
+            _objects += 1;
         }
         else {
-            (*obj)->vm.marked = 0;
-            obj = &(*obj)->vm.next;
+            object_delete(_heap[i]);
         }
     }
+    memcpy(_heap, tmp, _objects * sizeof(Object*));
 }
-*/
-void gc_collect_garbage(void)
+
+void gc_push(Object *obj)
 {
-/*
-    vm->object_max_number = vm->object_number * 2;
-
-    vm_mark_all_objects(vm);
-    vm_sweep_unreached_objects(vm);
-*/
+    Stack *stack = malloc(sizeof(Stack));
+    stack->item = obj;
+    stack->next = _stack;
+    _stack = stack;
 }
-/*
-void gc_add_object_to_common_list(Object *obj)
+
+Object *gc_pop(void)
 {
-    if (obj != NULL) {
-        obj->vm.next = vm->last_object;
-        obj->vm.marked = 0;
-        vm->last_object = obj;
-        vm->object_number++;
-
-        if (object_get_type(obj) == PAIR) {
-            Pair *pair = (Pair*)obj;
-
-            vm_add_object_to_common_list(vm, pair->first);
-            vm_add_object_to_common_list(vm, pair->rest);
-        }
-    }
+    assert(_stack != NULL);
+    Object *obj = NULL;
+    Stack *stack = _stack;
+    obj = stack->item;
+    _stack = stack->next;
+    free(stack);
+    return obj;
 }
-*/

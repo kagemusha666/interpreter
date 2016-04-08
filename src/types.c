@@ -6,6 +6,7 @@
 
 
 #include "types.h"
+#include "gc.h"
 #include "error.h"
 #include "debug.h"
 
@@ -19,7 +20,7 @@ static char string[STRING_MAX_LENGTH];
 
 static void mark(Object *obj)
 {
-    obj->gc.marked = 1;
+    /* Empty */
 }
 
 static void finalize(Object *obj)
@@ -185,17 +186,10 @@ static void env_dump(Object *obj)
 static void env_mark(Object *obj)
 {
     Env *env = (Env*)obj;
-    while (env != NULL) {
-        if (!env->object.gc.marked) {
-            Frame *frame = env->frame;
-            while (frame != NULL) {            
-                object_mark((Object*)frame->next);
-                frame = frame->next;
-            }
-            env->object.gc.marked = 1;
-            env = env->next;
-        }
-        else break;
+    Frame *frame = env->frame;
+    while (frame != NULL) {            
+        object_mark((Object*)frame->object);
+        frame = frame->next;
     }
 }
 
@@ -205,7 +199,7 @@ static void env_finalize(Object *obj)
     Frame *tmp;
     while (frame != NULL) {
         tmp = frame->next;
-        free((void*)frame->cstr);
+        free(frame->cstr);
         free(frame);
         frame = tmp;
     }
@@ -234,6 +228,9 @@ static void pair_dump(Object *obj)
     Object *first = ((Pair*)obj)->first;
     Object *rest = ((Pair*)obj)->rest;
 
+    assert(first != obj);
+    assert(rest != obj);
+
     if (first != NULL) {
         if (first->type == OBJECT_TYPE_PAIR) {
             printf("(");
@@ -257,15 +254,9 @@ static void pair_dump(Object *obj)
 
 static void pair_mark(Object *obj)
 {
-    if (!obj->gc.marked) {
-        Pair *pair = (Pair*)obj;
-        obj->gc.marked = 1;
-
-        if (pair->first != NULL)
-            pair->first->mark(pair->first);
-        if (pair->rest != NULL)
-            pair->rest->mark(pair->rest);
-    }
+    Pair *pair = (Pair*)obj;
+    object_mark(pair->first);
+    object_mark(pair->rest);
 }
 
 static Pair *pair_initialize()
@@ -282,45 +273,21 @@ static Pair *pair_initialize()
 
 static const char *procedure_to_string(Object *obj)
 {
-    const char *str = ((Proc*)obj)->cstr;
-    if (str != NULL) {
-        sprintf(string, "<procedure %s>", str);
-    }
-    else {
-        sprintf(string, "<procedure *unknown*>");
-    }
+    sprintf(string, "<procedure *unknown*>");
     return string;
 }
 
 static void procedure_dump(Object *obj)
 {
-    const char *str = ((Proc*)obj)->cstr;
-    if (str != NULL) {
-        printf("<procedure %s>", str);
-    }
-    else {
-        printf("<procedure *unknown*>");
-    }
+    printf("<procedure *unknown*>");
 }
 
 static void procedure_mark(Object *obj)
 {
-    if (!obj->gc.marked) {
-        Proc *proc = (Proc*)obj;
-        obj->gc.marked = 1;
-
-        if (proc->args != NULL)
-            object_mark((Object*)proc->args);
-        if (proc->body != NULL)
-            object_mark((Object*)proc->body);
-        if (proc->env != NULL)
-            object_mark((Object*)proc->env);
-    }
-}
-
-static void procedure_finalize(Object *obj)
-{
-    free((void*)((Proc*)obj)->cstr);
+    Proc *proc = (Proc*)obj;
+    object_mark((Object*)proc->args);
+    object_mark((Object*)proc->body);
+    object_mark((Object*)proc->env);
 }
 
 Proc *procedure_initialize()
@@ -329,8 +296,7 @@ Proc *procedure_initialize()
     obj->object.to_string = &procedure_to_string;
     obj->object.dump = &procedure_dump;
     obj->object.mark = &procedure_mark;
-    obj->object.finalize = &procedure_finalize;
-    obj->cstr = NULL;
+    obj->object.finalize = &finalize;
     obj->args = NULL;
     obj->body = NULL;
     obj->env = NULL;
@@ -414,6 +380,7 @@ Object *object_create(Type type)
     }
 
     obj->type = type;
+    gc_add(obj);
     return obj;
 }
 
@@ -449,6 +416,8 @@ void object_dump(Object *obj)
 
 void object_mark(Object *obj)
 {
-    assert(obj != NULL);
-    obj->mark(obj);
+    if (obj && !obj->marked) {
+        obj->marked = true;
+        obj->mark(obj);
+    }
 }

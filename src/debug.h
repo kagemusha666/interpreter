@@ -45,6 +45,7 @@ void assert_with_backtrace(const char *msg, const char *file, int line);
 
 #define assert(EX) (void)((EX) || (assert_with_backtrace (#EX, __FILE__, __LINE__),0))
 
-#define OBJECT_DUMP(OBJ) do { object_dump((Object*)OBJ); printf("\n"); } while (0)
+#define OBJECT_DUMP(OBJ) do { printf("%s:%d:%s: ", __FILE__, __LINE__, __func__);\
+                              object_dump((Object*)OBJ); printf("\n"); } while (0)
 
 #endif // DEBUG_H
